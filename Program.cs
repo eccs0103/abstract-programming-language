@@ -9,7 +9,6 @@ internal class Program
 		{
 			try
 			{
-				Console.Write("> ");
 				string input = Console.ReadLine() ?? throw new NullReferenceException($"Input cant be null");
 				double result = interpreter.Evaluate(input);
 				Console.WriteLine(result);
