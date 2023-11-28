@@ -16,7 +16,7 @@ print(7 + -4);
 ```
 - Improved language adaptability. Now, the absence of a value anywhere will be interpreted as `null`;
 ```anl
-data A: ;
+data A: ();
 print(A);
 ```
 - Changed syntax. Now it's mandatory to put a semicolon after each instruction.
