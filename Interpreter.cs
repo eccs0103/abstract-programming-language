@@ -11,7 +11,7 @@ namespace AdaptiveCore
 		public class Interpreter
 		{
 			#region Tokenizer
-			private class Token
+			public class Token
 			{
 				public enum Types { Number, Identifier, Keyword, Operator, Brackets, Semicolon }
 				public Token(Types type, string value, int line, int column)
@@ -53,7 +53,7 @@ namespace AdaptiveCore
 				"data",
 				"print"
 			};
-			private Token[] Tokenize(in string code)
+			public Token[] Tokenize(in string code)
 			{
 				int line = 0, column = 0;
 				List<Token> tokens = new();
@@ -94,7 +94,7 @@ namespace AdaptiveCore
 			}
 			#endregion
 			#region Parser
-			private abstract class Node { }
+			public abstract class Node { }
 			private class DataNode: Node
 			{
 				public static readonly DataNode Null = new(null);
@@ -113,17 +113,6 @@ namespace AdaptiveCore
 				}
 				public string Path { get; }
 				public override string ToString() => $"{this.Path}";
-			}
-			private class KeywordNode: Node
-			{
-				public KeywordNode(string keyword, params Node[] nodes) : base()
-				{
-					this.Keyword = keyword;
-					this.Nodes = nodes;
-				}
-				public string Keyword { get; }
-				public Node[] Nodes { get; }
-				public override string ToString() => $"{this.Keyword}({string.Join<Node>(", ", this.Nodes)})";
 			}
 			private abstract class OperatorNode: Node
 			{
@@ -158,9 +147,11 @@ namespace AdaptiveCore
 			{
 				{  @"(", @")" },
 			};
-			private Node Parse(in Token[] tokens)
+			public Node[] Parse(in Token[] tokens)
 			{
-				static Node Parse0(in Token[] tokens, ref int begin, int end)
+				List<Node> trees = new();
+
+				Node Parse0(in Token[] tokens, ref int begin, int end)
 				{
 					Node left = Parse1(tokens, ref begin, end);
 					while (begin < Min(tokens.Length, end))
@@ -176,7 +167,7 @@ namespace AdaptiveCore
 					}
 					return left;
 				}
-				static Node Parse1(in Token[] tokens, ref int begin, int end)
+				Node Parse1(in Token[] tokens, ref int begin, int end)
 				{
 					Node left = Parse2(tokens, ref begin, end);
 					while (begin < Min(tokens.Length, end))
@@ -192,7 +183,7 @@ namespace AdaptiveCore
 					}
 					return left;
 				}
-				static Node Parse2(in Token[] tokens, ref int begin, int end)
+				Node Parse2(in Token[] tokens, ref int begin, int end)
 				{
 					Node left = Parse3(tokens, ref begin, end);
 					while (begin < Min(tokens.Length, end))
@@ -208,7 +199,7 @@ namespace AdaptiveCore
 					}
 					return left;
 				}
-				static Node Parse3(in Token[] tokens, ref int begin, int end)
+				Node Parse3(in Token[] tokens, ref int begin, int end)
 				{
 					if (begin < Min(tokens.Length, end))
 					{
@@ -234,17 +225,27 @@ namespace AdaptiveCore
 								case "data":
 								{
 									begin++;
-									Node right = Parse3(tokens, ref begin, end);
-									return new KeywordNode(token.Value, right);
+									Node target = Parse3(tokens, ref begin, end);
+									return new UnaryOperatorNode(token.Value, target);
 								}
 								case "print":
 								{
 									begin++;
-									Node right = Parse3(tokens, ref begin, end);
-									return new KeywordNode(token.Value, right);
+									Node target = Parse3(tokens, ref begin, end);
+									return new UnaryOperatorNode(token.Value, target);
 								}
 								default: throw new ArgumentException($"Invalid keyword: {token}");
 							}
+						}
+						else if (token.Type == Token.Types.Operator)
+						{
+							if (token.Value == "+" || token.Value == "-")
+							{
+								begin++;
+								Node target = Parse3(tokens, ref begin, end);
+								return new UnaryOperatorNode(token.Value, target);
+							}
+							else throw new ArgumentException($"Invalid operator: {token}");
 						}
 						else if (token.Type == Token.Types.Brackets)
 						{
@@ -268,8 +269,9 @@ namespace AdaptiveCore
 						{
 							if (token.Value == ";")
 							{
+								Node node = DataNode.Null;
 								begin++;
-								Node node = Parse0(tokens, ref begin, end);
+								trees.Add(Parse0(tokens, ref begin, end));
 								return node;
 							}
 							else throw new ArgumentException($"Invalid semicolon: {token}");
@@ -279,18 +281,27 @@ namespace AdaptiveCore
 					else return DataNode.Null;
 				}
 
-				int index = 0;
-				return Parse0(tokens, ref index, tokens.Length);
-
+				for (int index = 0; true;)
+				{
+					if (index < tokens.Length)
+					{
+						Token token = tokens[index];
+						if (token.Type == Token.Types.Semicolon && token.Value == ";") break;
+						Node tree = Parse0(tokens, ref index, tokens.Length);
+						trees.Add(tree);
+					}
+					else throw new ArgumentException($"Expected ';'");
+				}
+				return trees.ToArray();
 			}
 			#endregion
 			#region Evalutor
-			private readonly Dictionary<string, double> memory = new()
+			private readonly Dictionary<string, double?> memory = new()
 			{
 				{ "Pi", PI },
 				{ "E", E },
 			};
-			private double? Evaluate(in Node node)
+			public double?[] Evaluate(in Node[] trees)
 			{
 				Node Assemble0(in Node node)
 				{
@@ -302,21 +313,26 @@ namespace AdaptiveCore
 					{
 						return nodeReference;
 					}
-					else if (node is KeywordNode nodeKeyword)
+					else if (node is UnaryOperatorNode nodeUnaryOperator)
 					{
-						switch (nodeKeyword.Keyword)
+						switch (nodeUnaryOperator.Operator)
 						{
 							case "data":
 							{
-								if (nodeKeyword.Nodes.Length > 0 && nodeKeyword.Nodes[0] is ReferenceNode nodeTargetReference)
+								if (nodeUnaryOperator.Target is ReferenceNode nodeTargetReference)
 								{
-									this.memory[nodeTargetReference.Path] = 0;
+									this.memory[nodeTargetReference.Path] = null;
 								}
 								else throw new ArgumentException($"Identifier expected");
 								return nodeTargetReference;
 							}
-							case "print": return nodeKeyword;
-							default: throw new ArgumentException($"Invalid {nodeKeyword.Keyword} keyword");
+							case "+":
+							case "-":
+							case "print":
+							{
+								return nodeUnaryOperator;
+							}
+							default: throw new ArgumentException($"Invalid {nodeUnaryOperator.Operator} keyword");
 						}
 					}
 					else if (node is BinaryOperatorNode nodeBinaryOperator)
@@ -357,24 +373,28 @@ namespace AdaptiveCore
 					}
 					else if (node is ReferenceNode nodeReference)
 					{
-						return this.memory.TryGetValue(nodeReference.Path, out double value)
+						return this.memory.TryGetValue(nodeReference.Path, out double? value)
 							? value
 							: throw new Exception($"Identifier '{nodeReference.Path}' does not exist");
 					}
-					else if (node is KeywordNode nodeKeyword)
+					else if (node is UnaryOperatorNode nodeUnaryOperator)
 					{
-						switch (nodeKeyword.Keyword)
+						switch (nodeUnaryOperator.Operator)
 						{
+							case "+":
+							{
+								return Evaluate1(nodeUnaryOperator.Target);
+							}
+							case "-":
+							{
+								return -Evaluate1(nodeUnaryOperator.Target);
+							}
 							case "print":
 							{
-								if (nodeKeyword.Nodes.Length > 0)
-								{
-									Console.WriteLine(Evaluate1(nodeKeyword.Nodes[0]));
-								}
-								else throw new ArgumentException($"Argument expected");
+								Console.WriteLine(Evaluate1(nodeUnaryOperator.Target));
 								return null;
 							}
-							default: throw new ArgumentException($"Invalid {nodeKeyword.Keyword} keyword");
+							default: throw new ArgumentException($"Invalid {nodeUnaryOperator.Operator} keyword");
 						}
 					}
 					else if (node is BinaryOperatorNode nodeBinaryOperator)
@@ -383,31 +403,31 @@ namespace AdaptiveCore
 						{
 							case "+":
 							{
-								double left = this.Evaluate(nodeBinaryOperator.Left) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
-								double right = this.Evaluate(nodeBinaryOperator.Right) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
+								double left = Evaluate1(nodeBinaryOperator.Left) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
+								double right = Evaluate1(nodeBinaryOperator.Right) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
 								return left + right;
 							}
 							case "-":
 							{
-								double left = this.Evaluate(nodeBinaryOperator.Left) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
-								double right = this.Evaluate(nodeBinaryOperator.Right) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
+								double left = Evaluate1(nodeBinaryOperator.Left) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
+								double right = Evaluate1(nodeBinaryOperator.Right) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
 								return left - right;
 							}
 							case "*":
 							{
-								double left = this.Evaluate(nodeBinaryOperator.Left) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
-								double right = this.Evaluate(nodeBinaryOperator.Right) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
+								double left = Evaluate1(nodeBinaryOperator.Left) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
+								double right = Evaluate1(nodeBinaryOperator.Right) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
 								return left * right;
 							}
 							case "/":
 							{
-								double left = this.Evaluate(nodeBinaryOperator.Left) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
-								double right = this.Evaluate(nodeBinaryOperator.Right) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
+								double left = Evaluate1(nodeBinaryOperator.Left) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
+								double right = Evaluate1(nodeBinaryOperator.Right) ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
 								return left / right;
 							}
 							case ":":
 							{
-								double right = this.Evaluate(nodeBinaryOperator.Right) ?? throw new NullReferenceException($"Operator '+' cannot be applied to null operand"); //TODO
+								double? right = Evaluate1(nodeBinaryOperator.Right); // ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand");
 								if (!(nodeBinaryOperator.Left is ReferenceNode)) throw new ArgumentException($"Left side of assignment must be identifier");
 								ReferenceNode nodeLeftReference = (ReferenceNode) nodeBinaryOperator.Left;
 								if (!memory.ContainsKey(nodeLeftReference.Path)) throw new Exception($"Identifier '{nodeLeftReference.Path}' does not exist");
@@ -420,9 +440,9 @@ namespace AdaptiveCore
 					else throw new ArgumentException($"Invalid node {node.GetType()} type");
 				}
 
-				return Evaluate1(Assemble0(node));
+				return trees.Select(tree => Evaluate1(Assemble0(tree))).ToArray();
 			}
-			public double? Evaluate(in string code) => this.Evaluate(this.Parse(this.Tokenize(code)));
+			public double?[] Evaluate(in string code) => this.Evaluate(this.Parse(this.Tokenize(code)));
 			#endregion
 		}
 	}
