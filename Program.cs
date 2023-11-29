@@ -21,7 +21,7 @@ internal class Program
 				//Console.WriteLine(string.Join<Token>("\n", tokens));
 				//Node[] trees = interpreter.Parse(tokens);
 				//Console.WriteLine(string.Join<Node>("\n", trees));
-				//_ = interpreter.Evaluate(trees);
+				//interpreter.Evaluate(trees);
 				#endregion
 				#region External
 				//string input = Console.ReadLine() ?? throw new NullReferenceException($"Input cant be null");
@@ -38,7 +38,7 @@ internal class Program
 				//		{
 				//			Console.WriteLine($"Running {file.Name}");
 				//			string content = File.ReadAllText(file.FullName);
-				//			_ = interpreter.Evaluate(input);
+				//			interpreter.Evaluate(input);
 				//		}
 				//		else throw new NullReferenceException($"File {file.Name} in {file.Directory?.FullName} doesn't exist");
 				//	}
@@ -48,7 +48,7 @@ internal class Program
 				#endregion
 				#region Internal
 				string input = Console.ReadLine() ?? throw new NullReferenceException($"Input cant be null");
-				_ = interpreter.Evaluate(input);
+				interpreter.Evaluate(input);
 				#endregion
 			}
 			catch (Exception exception)

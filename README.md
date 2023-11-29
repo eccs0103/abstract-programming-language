@@ -2,6 +2,20 @@
 
 ## Feed
 
+### Update 0.1.9 (29.11.2023)
+- Added the keyword `null`. To use a missing value, it's necessary to explicitly use `null`. The absence of a value is no longer automatically considered as `null`.
+```anl
+data A: null;
+```
+- Improved recognition of semicolons.
+- Now the initial variables `E` and `Pi` are considered non-writable. Their values cannot be changed.
+- Improved adaptability and interpretation of variables.
+```anl
+print(data A: 5);
+```
+- Fixed a bug where it was possible to initialize a variable with itself.
+
+
 ### Update 0.1.7 (28.11.2023)
 - Now you can execute code with multiple instructions.
 ```anl
