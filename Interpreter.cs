@@ -11,26 +11,19 @@ namespace AdaptiveCore
 		public partial class Interpreter
 		{
 			#region Tokenizer
-			public class Token
+			public class Token(Token.Types type, string value, int line, int column)
 			{
-				public enum Types { Number, Identifier, Keyword, Operator, Brackets, Semicolon }
-				public Token(Types type, string value, int line, int column)
-				{
-					this.Type = type;
-					this.Value = value;
-					this.Line = line;
-					this.Column = column;
-				}
-				public Types Type { get; }
-				public string Value { get; }
-				public int Line { get; }
-				public int Column { get; }
+				public enum Types { Number, Register, Keyword, Operator, Brackets, Semicolon }
+				public Types Type { get; } = type;
+				public string Value { get; } = value;
+				public int Line { get; } = line;
+				public int Column { get; } = column;
 				public override string ToString()
 				{
 					return $"{this.Type switch
 					{
 						Types.Number => "Number",
-						Types.Identifier => "Identifier",
+						Types.Register => "Register",
 						Types.Keyword => "Keyword",
 						Types.Operator => "Operator",
 						Types.Brackets => "Brackets",
@@ -43,10 +36,8 @@ namespace AdaptiveCore
 			{
 				{ new Regex(@"^\s+", RegexOptions.Compiled), null },
 				{ new Regex(@"^\d+(\.\d+)?", RegexOptions.Compiled), Token.Types.Number },
-				//{ new Regex(@"^(\+\+|--)", RegexOptions.Compiled), Token.Types.Operator },
-				{ new Regex(@"^(\+:|-:|\*:|/:)", RegexOptions.Compiled), Token.Types.Operator },
 				{ new Regex(@"^(\+|-|\*|/|:)", RegexOptions.Compiled), Token.Types.Operator },
-				{ new Regex(@"^[A-z]\w*", RegexOptions.Compiled), Token.Types.Identifier },
+				{ new Regex(@"^[A-z]\w*", RegexOptions.Compiled), Token.Types.Register },
 				{ new Regex(@"^[()]", RegexOptions.Compiled), Token.Types.Brackets },
 				{ new Regex(@"^;", RegexOptions.Compiled), Token.Types.Semicolon },
 			};
@@ -59,33 +50,30 @@ namespace AdaptiveCore
 			public Token[] Tokenize(in string code)
 			{
 				int line = 0, column = 0;
-				List<Token> tokens = new();
+				List<Token> tokens = [];
 				for (string text = code; text.Length > 0;)
 				{
 					bool hasChanges = false;
-					foreach ((Regex regex, Token.Types? type) in dictionary)
+					foreach ((Regex regex, Token.Types? typified) in dictionary)
 					{
 						Match match = regex.Match(text);
 						if (match.Success)
 						{
-							if (type != null)
+							if (typified != null)
 							{
-								tokens.Add(new Token
-								(
-									type == Token.Types.Identifier && keywords.Contains(match.Value)
-										? Token.Types.Keyword
-										: type.GetValueOrDefault()
-								, match.Value, line, column));
+								Token.Types type = typified.GetValueOrDefault();
+								if (type == Token.Types.Register && keywords.Contains(match.Value))
+								{
+									type = Token.Types.Keyword;
+								}
+								tokens.Add(new Token(type, match.Value, line, column));
 							}
 							if (match.Value == "\n")
 							{
 								line++;
 								column = 0;
 							}
-							else
-							{
-								column += match.Length;
-							}
+							else column += match.Length;
 							hasChanges = true;
 							text = text[(match.Index + match.Length)..];
 							break;
@@ -97,184 +85,162 @@ namespace AdaptiveCore
 			}
 			#endregion
 			#region Parser
-			public abstract class Node
+			public abstract class Node()
 			{
-
 			}
-			private class DataNode: Node
+			private class ValueNode(double? value): Node()
 			{
-				public static readonly DataNode Null = new(null);
-				public DataNode(double? value) : base()
-				{
-					this.Value = value;
-				}
-				public double? Value { get; }
+				public static readonly ValueNode Null = new(null);
+				public double? Value { get; } = value;
 				public override string ToString() => $"{this.Value}";
 			}
-			private class IdentifierNode: Node
+			private class RegisterNode(string address): Node()
 			{
-				public IdentifierNode(string path) : base()
-				{
-					this.Name = path;
-				}
-				public string Name { get; }
-				public override string ToString() => $"{this.Name}";
+				public string Address { get; } = address;
+				public override string ToString() => $"{this.Address}";
 			}
-			private abstract class OperatorNode: Node
+			private abstract class OperatorNode(string @operator): Node()
 			{
-				public OperatorNode(string @operator) : base()
-				{
-					this.Operator = @operator;
-				}
-				public string Operator { get; }
+				public string Operator { get; } = @operator;
 				public override string ToString() => $"({this.Operator})";
 			}
-			private class UnaryOperatorNode: OperatorNode
+			private class UnaryOperatorNode(string @operator, Node target): OperatorNode(@operator)
 			{
-				public UnaryOperatorNode(string @operator, Node target) : base(@operator)
-				{
-					this.Target = target;
-				}
-				public Node Target { get; set; }
+				public Node Target { get; set; } = target;
 				public override string ToString() => $"{this.Operator}({this.Target})";
 			}
-			private class BinaryOperatorNode: OperatorNode
+			private class BinaryOperatorNode(string @operator, Node left, Node right): OperatorNode(@operator)
 			{
-				public BinaryOperatorNode(string @operator, Node left, Node right) : base(@operator)
-				{
-					this.Left = left;
-					this.Right = right;
-				}
-				public Node Left { get; set; }
-				public Node Right { get; set; }
+				public Node Left { get; set; } = left;
+				public Node Right { get; set; } = right;
 				public override string ToString() => $"({this.Left} {this.Operator} {this.Right})";
 			}
 			private static readonly Dictionary<string, string> brackets = new()
 			{
 				{  @"(", @")" },
 			};
-			public Node[] Parse(in Token[] tokens)
+			private static Node InitialParse(in Token[] tokens, ref int begin, int end)
 			{
-				static Node Parse0(in Token[] tokens, ref int begin, int end)
+				return OperatorsGroup1Parse(tokens, ref begin, end);
+			}
+			private static Node OperatorsGroup1Parse(in Token[] tokens, ref int begin, int end)
+			{
+				Node left = OperatorsGroup2Parse(tokens, ref begin, end);
+				while (begin < Min(tokens.Length, end))
 				{
-					Node left = Parse1(tokens, ref begin, end);
-					while (begin < Min(tokens.Length, end))
+					Token token = tokens[begin];
+					if (token.Type == Token.Types.Operator)
 					{
-						Token token = tokens[begin];
-						if (token.Type == Token.Types.Operator)
+						switch (token.Value)
 						{
-							switch (token.Value)
+							case ":":
 							{
-								case ":":
-								case "+:":
-								case "-:":
-								case "*:":
-								case "/:":
-								{
-									begin++;
-									Node right = Parse1(tokens, ref begin, end);
-									left = new BinaryOperatorNode(token.Value, left, right);
-								}
-								break;
+								begin++;
+								Node right = OperatorsGroup2Parse(tokens, ref begin, end);
+								left = new BinaryOperatorNode(token.Value, left, right);
 							}
+							break;
 						}
-						else break;
 					}
-					return left;
+					else break;
 				}
-				static Node Parse1(in Token[] tokens, ref int begin, int end)
+				return left;
+			}
+			private static Node OperatorsGroup2Parse(in Token[] tokens, ref int begin, int end)
+			{
+				Node left = OperatorsGroup3Parse(tokens, ref begin, end);
+				while (begin < Min(tokens.Length, end))
 				{
-					Node left = Parse2(tokens, ref begin, end);
-					while (begin < Min(tokens.Length, end))
+					Token token = tokens[begin];
+					if (token.Type == Token.Types.Operator && (token.Value == "+" || token.Value == "-"))
 					{
-						Token token = tokens[begin];
-						if (token.Type == Token.Types.Operator && (token.Value == "+" || token.Value == "-"))
-						{
-							begin++;
-							Node right = Parse2(tokens, ref begin, end);
-							left = new BinaryOperatorNode(token.Value, left, right);
-						}
-						else break;
+						begin++;
+						Node right = OperatorsGroup3Parse(tokens, ref begin, end);
+						left = new BinaryOperatorNode(token.Value, left, right);
 					}
-					return left;
+					else break;
 				}
-				static Node Parse2(in Token[] tokens, ref int begin, int end)
+				return left;
+			}
+			private static Node OperatorsGroup3Parse(in Token[] tokens, ref int begin, int end)
+			{
+				Node left = VerticesParse(tokens, ref begin, end);
+				while (begin < Min(tokens.Length, end))
 				{
-					Node left = Parse3(tokens, ref begin, end);
-					while (begin < Min(tokens.Length, end))
+					Token token = tokens[begin];
+					if (token.Type == Token.Types.Operator && (token.Value == "*" || token.Value == "/"))
 					{
-						Token token = tokens[begin];
-						if (token.Type == Token.Types.Operator && (token.Value == "*" || token.Value == "/"))
-						{
-							begin++;
-							Node right = Parse3(tokens, ref begin, end);
-							left = new BinaryOperatorNode(token.Value, left, right);
-						}
-						else break;
+						begin++;
+						Node right = VerticesParse(tokens, ref begin, end);
+						left = new BinaryOperatorNode(token.Value, left, right);
 					}
-					return left;
+					else break;
 				}
-				static Node Parse3(in Token[] tokens, ref int begin, int end)
+				return left;
+			}
+			private static Node VerticesParse(in Token[] tokens, ref int begin, int end)
+			{
+				if (begin < Min(tokens.Length, end))
 				{
-					if (begin < Min(tokens.Length, end))
+					Token token = tokens[begin];
+					switch (token.Type)
 					{
-						Token token = tokens[begin];
-						if (token.Type == Token.Types.Number)
+						case Token.Types.Number:
 						{
-							Node node = new DataNode(Convert.ToDouble(token.Value, CultureInfo.GetCultureInfo("en-US")));
+							Node node = new ValueNode(Convert.ToDouble(token.Value, CultureInfo.GetCultureInfo("en-US")));
 							begin++;
 							return node;
 						}
-						else if (token.Type == Token.Types.Identifier)
+						case Token.Types.Register:
 						{
-							Node node = new IdentifierNode(token.Value);
+							Node node = new RegisterNode(token.Value);
 							begin++;
 							return node;
 						}
-						else if (token.Type == Token.Types.Keyword)
+						case Token.Types.Keyword:
 						{
 							switch (token.Value)
 							{
 								case "data":
 								{
 									begin++;
-									Node target = Parse3(tokens, ref begin, end);
+									Node target = VerticesParse(tokens, ref begin, end);
 									return new UnaryOperatorNode(token.Value, target);
 								}
 								case "print":
 								{
 									begin++;
-									Node target = Parse3(tokens, ref begin, end);
+									Node target = VerticesParse(tokens, ref begin, end);
 									return new UnaryOperatorNode(token.Value, target);
 								}
 								case "null":
 								{
 									begin++;
-									return DataNode.Null;
+									return ValueNode.Null;
 								}
 								default: throw new ArgumentException($"Invalid keyword: {token}");
 							}
 						}
-						else if (token.Type == Token.Types.Operator)
+						case Token.Types.Operator:
 						{
 							if (token.Value == "+" || token.Value == "-")
 							{
 								begin++;
-								Node target = Parse3(tokens, ref begin, end);
+								Node target = VerticesParse(tokens, ref begin, end);
 								return new UnaryOperatorNode(token.Value, target);
 							}
 							else throw new ArgumentException($"Invalid operator: {token}");
 						}
-						else if (token.Type == Token.Types.Brackets)
+						case Token.Types.Brackets:
 						{
 							if (brackets.TryGetValue(token.Value, out string? pair))
 							{
-								for (int index2 = begin + 1; index2 < tokens.Length; index2++)
+								for (int index2 = tokens.Length - 1; index2 > begin; index2--)
 								{
 									if (tokens[index2].Value == pair)
 									{
 										begin++;
-										Node node = Parse0(tokens, ref begin, index2);
+										Node node = InitialParse(tokens, ref begin, index2);
 										begin++;
 										return node;
 									}
@@ -283,15 +249,17 @@ namespace AdaptiveCore
 							}
 							else throw new ArgumentException($"Invalid bracket: {token}");
 						}
-						else throw new ArgumentException($"Invalid token: {token}");
+						default: throw new ArgumentException($"Invalid token: {token}");
 					}
-					else throw new NullReferenceException($"Expected expression");
 				}
-
-				List<Node> trees = new();
+				else throw new NullReferenceException($"Expected expression");
+			}
+			public Node[] Parse(in Token[] tokens)
+			{
+				List<Node> trees = [];
 				for (int index = 0; index < tokens.Length;)
 				{
-					Node tree = Parse0(tokens, ref index, tokens.Length);
+					Node tree = InitialParse(tokens, ref index, tokens.Length);
 					if (index < tokens.Length && tokens[index].Type == Token.Types.Semicolon && tokens[index].Value == ";")
 					{
 						trees.Add(tree);
@@ -303,15 +271,22 @@ namespace AdaptiveCore
 			}
 			#endregion
 			#region Evalutor
+			private class DataInitializer
+			{
+				public string Type { get; set; } = "Any";
+				public bool Writeable { get; set; } = true;
+			}
 			private class Data
 			{
-				public Data(double? value, string type = "Number")
+				public Data(double? value, DataInitializer? initializer = null)
 				{
-					this.Value = value;
-					this.Type = type;
+					DataInitializer mainInitializer = initializer ?? new();
+					this.Type = mainInitializer.Type;
+					this.Writeable = mainInitializer.Writeable;
+					this.value = value;
 				}
 				public readonly string Type;
-				public bool Writeable { get; set; } = true;
+				public readonly bool Writeable;
 				private double? value;
 				public double? Value
 				{
@@ -326,136 +301,122 @@ namespace AdaptiveCore
 			}
 			private readonly Dictionary<string, Data> memory = new()
 			{
-				{ "Pi", new Data(PI) { Writeable = false, } },
-				{ "E", new Data(E) { Writeable = false, } },
+				{ "Pi", new Data(PI, new() { Writeable = false, }) },
+				{ "E", new Data(E, new() { Writeable = false, }) },
 			};
+			private ValueNode ToValueNode(in Node node)
+			{
+				if (node is ValueNode nodeValue)
+				{
+					return nodeValue;
+				}
+				else if (node is RegisterNode nodeRegister)
+				{
+					return this.memory.TryGetValue(nodeRegister.Address, out Data? data)
+						? new ValueNode(data.Value)
+						: throw new Exception($"Identifier '{nodeRegister.Address}' does not exist");
+				}
+				else if (node is UnaryOperatorNode nodeUnaryOperator)
+				{
+					switch (nodeUnaryOperator.Operator)
+					{
+						case "+":
+						case "-":
+						{
+							return this.ToValueNode(new BinaryOperatorNode(nodeUnaryOperator.Operator, new ValueNode(0), nodeUnaryOperator.Target));
+						}
+						case "data":
+						{
+							return this.ToValueNode(this.ToRegisterNode(nodeUnaryOperator));
+						}
+						case "print":
+						{
+							ValueNode nodeValue2 = this.ToValueNode(nodeUnaryOperator.Target);
+							Console.WriteLine(nodeValue2.Value);
+							return ValueNode.Null;
+						}
+						default: throw new ArgumentException($"Invalid '{nodeUnaryOperator.Operator}' operator");
+					}
+				}
+				else if (node is BinaryOperatorNode nodeBinaryOperator)
+				{
+					switch (nodeBinaryOperator.Operator)
+					{
+						case "+":
+						case "-":
+						case "*":
+						case "/":
+						{
+							double dataLeft = this.ToValueNode(nodeBinaryOperator.Left).Value ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand"); ;
+							double dataRight = this.ToValueNode(nodeBinaryOperator.Right).Value ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand"); ;
+							return nodeBinaryOperator.Operator switch
+							{
+								"+" => new ValueNode(dataLeft + dataRight),
+								"-" => new ValueNode(dataLeft - dataRight),
+								"*" => new ValueNode(dataLeft * dataRight),
+								"/" => new ValueNode(dataLeft / dataRight),
+								_ => throw new ArgumentException($"Invalid {nodeBinaryOperator.Operator} operator"),
+							};
+						}
+						case ":":
+						{
+							return this.ToValueNode(this.ToRegisterNode(nodeBinaryOperator));
+						}
+						default: throw new ArgumentException($"Invalid '{nodeBinaryOperator.Operator}' operator");
+					}
+				}
+				else throw new ArgumentException($"Unable to evaluate ValueNode from {node}");
+			}
+			private RegisterNode ToRegisterNode(in Node node)
+			{
+				if (node is RegisterNode nodeRegister)
+				{
+					return nodeRegister;
+				}
+				else if (node is UnaryOperatorNode nodeUnaryOperator)
+				{
+					switch (nodeUnaryOperator.Operator)
+					{
+						case "data":
+						{
+							if (nodeUnaryOperator.Target is RegisterNode nodeRegisterTarget)
+							{
+								if (!this.memory.TryAdd(nodeRegisterTarget.Address, new Data(null)))
+								{
+									throw new ArgumentException($"Identifier '{nodeRegisterTarget.Address}' already exists");
+								}
+							}
+							else throw new ArgumentException($"Identifier expected");
+							return nodeRegisterTarget;
+						}
+						default: throw new ArgumentException($"Invalid '{nodeUnaryOperator.Operator}' operator");
+					}
+				}
+				else if (node is BinaryOperatorNode nodeBinaryOperator)
+				{
+					switch (nodeBinaryOperator.Operator)
+					{
+						case ":":
+						{
+							ValueNode nodeValueRight = this.ToValueNode(nodeBinaryOperator.Right);
+							RegisterNode nodeRegisterLeft = this.ToRegisterNode(nodeBinaryOperator.Left);
+							if (!this.memory.TryGetValue(nodeRegisterLeft.Address, out Data? data)) throw new Exception($"Identifier '{nodeRegisterLeft.Address}' does not exist");
+							data.Value = data.Writeable
+								? nodeValueRight.Value
+								: throw new InvalidOperationException($"Identifier '{nodeRegisterLeft.Address}' is non-writeable");
+							return nodeRegisterLeft;
+						}
+						default: throw new ArgumentException($"Invalid '{nodeBinaryOperator.Operator}' operator");
+					}
+				}
+				else throw new ArgumentException($"Unable to evaluate RegisterNode from {node}");
+			}
+			private void Evaluate(in Node node) => _ = this.ToValueNode(node);
 			public void Evaluate(in Node[] trees)
 			{
-				DataNode ToDataNode(in Node node)
-				{
-					if (node is DataNode nodeData)
-					{
-						return nodeData;
-					}
-					else if (node is IdentifierNode nodeIdentifier)
-					{
-						return this.memory.TryGetValue(nodeIdentifier.Name, out Data? data)
-							? new DataNode(data.Value)
-							: throw new Exception($"Identifier '{nodeIdentifier.Name}' does not exist");
-					}
-					else if (node is UnaryOperatorNode nodeUnaryOperator)
-					{
-						switch (nodeUnaryOperator.Operator)
-						{
-							case "+":
-							case "-":
-							{
-								return ToDataNode(new BinaryOperatorNode(nodeUnaryOperator.Operator, new DataNode(0), nodeUnaryOperator.Target));
-							}
-							case "data":
-							{
-								return ToDataNode(ToIdentifierNode(nodeUnaryOperator));
-							}
-							case "print":
-							{
-								DataNode nodeData2 = ToDataNode(nodeUnaryOperator.Target);
-								Console.WriteLine(nodeData2.Value);
-								return DataNode.Null;
-							}
-							default: throw new ArgumentException($"Invalid {nodeUnaryOperator.Operator} keyword");
-						}
-					}
-					else if (node is BinaryOperatorNode nodeBinaryOperator)
-					{
-						switch (nodeBinaryOperator.Operator)
-						{
-							case "+":
-							case "-":
-							case "*":
-							case "/":
-							{
-								double dataLeft = ToDataNode(nodeBinaryOperator.Left).Value ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand"); ;
-								double dataRight = ToDataNode(nodeBinaryOperator.Right).Value ?? throw new NullReferenceException($"Operator '{nodeBinaryOperator.Operator}' cannot be applied to null operand"); ;
-								return nodeBinaryOperator.Operator switch
-								{
-									"+" => new DataNode(dataLeft + dataRight),
-									"-" => new DataNode(dataLeft - dataRight),
-									"*" => new DataNode(dataLeft * dataRight),
-									"/" => new DataNode(dataLeft / dataRight),
-									_ => throw new ArgumentException($"Invalid {nodeBinaryOperator.Operator} operator"),
-								};
-							}
-							case ":":
-							case "+:":
-							case "-:":
-							case "*:":
-							case "/:":
-							{
-								return ToDataNode(ToIdentifierNode(nodeBinaryOperator));
-							}
-							default: throw new ArgumentException($"Invalid {nodeBinaryOperator.Operator} operator");
-						}
-					}
-					else throw new ArgumentException($"Invalid expression {node}");
-				}
-				IdentifierNode ToIdentifierNode(in Node node)
-				{
-					if (node is IdentifierNode nodeIdentifier)
-					{
-						return nodeIdentifier;
-					}
-					else if (node is UnaryOperatorNode nodeUnaryOperator)
-					{
-						switch (nodeUnaryOperator.Operator)
-						{
-							case "data":
-							{
-								if (nodeUnaryOperator.Target is IdentifierNode nodeIdentifierTarget)
-								{
-									if (!this.memory.TryAdd(nodeIdentifierTarget.Name, new Data(null)))
-									{
-										throw new ArgumentException($"Identifier '{nodeIdentifierTarget.Name}' already exists");
-									}
-								}
-								else throw new ArgumentException($"Identifier expected");
-								return nodeIdentifierTarget;
-							}
-							default: throw new ArgumentException($"Invalid {nodeUnaryOperator.Operator} keyword");
-						}
-					}
-					else if (node is BinaryOperatorNode nodeBinaryOperator)
-					{
-						switch (nodeBinaryOperator.Operator)
-						{
-							case ":":
-							{
-								DataNode nodeDataRight = ToDataNode(nodeBinaryOperator.Right);
-								IdentifierNode nodeIdentifierLeft = ToIdentifierNode(nodeBinaryOperator.Left);
-								if (!this.memory.ContainsKey(nodeIdentifierLeft.Name)) throw new Exception($"Identifier '{nodeIdentifierLeft.Name}' does not exist");
-								Data data = this.memory[nodeIdentifierLeft.Name];
-								data.Value = data.Writeable
-									? nodeDataRight.Value
-									: throw new InvalidOperationException($"Identifier '{nodeIdentifierLeft.Name}' is non-writeable");
-								return nodeIdentifierLeft;
-							}
-							case "+:":
-							case "-:":
-							case "*:":
-							case "/:":
-							{
-								DataNode nodeDataRight = ToDataNode(nodeBinaryOperator.Right);
-								IdentifierNode nodeIdentifierLeft = ToIdentifierNode(nodeBinaryOperator.Left);
-								return ToIdentifierNode(new BinaryOperatorNode(":", nodeIdentifierLeft, new BinaryOperatorNode(nodeBinaryOperator.Operator[0..1], nodeIdentifierLeft, nodeDataRight)));
-							}
-							default: throw new ArgumentException($"Invalid {nodeBinaryOperator.Operator} operator");
-						}
-					}
-					else throw new ArgumentException($"Invalid expression {node}");
-				}
-
 				foreach (Node tree in trees)
 				{
-					_ = ToDataNode(tree);
+					this.Evaluate(tree);
 				}
 			}
 			public void Evaluate(in string code) => this.Evaluate(this.Parse(this.Tokenize(code)));

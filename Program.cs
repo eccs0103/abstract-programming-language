@@ -16,12 +16,12 @@ internal class Program
 			try
 			{
 				#region Debug
-				//string input = Console.ReadLine() ?? throw new NullReferenceException($"Input cant be null");
-				//Token[] tokens = interpreter.Tokenize(input);
+				/*string input = Console.ReadLine() ?? throw new NullReferenceException($"Input cant be null");
+				Token[] tokens = interpreter.Tokenize(input);
 				//Console.WriteLine(string.Join<Token>("\n", tokens));
-				//Node[] trees = interpreter.Parse(tokens);
+				Node[] trees = interpreter.Parse(tokens);
 				//Console.WriteLine(string.Join<Node>("\n", trees));
-				//interpreter.Evaluate(trees);
+				interpreter.Evaluate(trees);*/
 				#endregion
 				#region External
 				//string input = Console.ReadLine() ?? throw new NullReferenceException($"Input cant be null");
