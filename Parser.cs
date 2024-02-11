@@ -36,10 +36,7 @@ namespace ALM
 			public Locator GetSublocator(UInt32 begin, UInt32 end)
 			{
 				Locator locator = new(this.tokens, begin, end);
-				locator.LocationChangeCallback += (position) =>
-				{
-					this.LocationChangeCallback.Invoke(position);
-				};
+				locator.LocationChangeCallback += this.LocationChangeCallback.Invoke;
 				return locator;
 			}
 		}

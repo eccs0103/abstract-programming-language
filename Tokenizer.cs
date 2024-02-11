@@ -6,7 +6,15 @@ namespace ALM
 	{
 		public class Token(Token.Types type, String value, Position position)
 		{
-			public enum Types { Number, Identifier, Keyword, Operator, Brackets, Semicolon }
+			public enum Types
+			{
+				Number,
+				Identifier,
+				Keyword,
+				Operator,
+				Brackets,
+				Semicolon
+			}
 			public Types Type { get; } = type;
 			public String Value { get; } = value;
 			public Position Position { get; } = position;
@@ -26,12 +34,12 @@ namespace ALM
 		}
 		private static readonly Dictionary<Regex, Token.Types?> dictionary = new()
 		{
-			{ new Regex(@"^\s+", RegexOptions.Compiled), null },
-			{ new Regex(@"^\d+(\.\d+)?", RegexOptions.Compiled), Token.Types.Number },
-			{ new Regex(@"^(\+|-|\*|/|:)", RegexOptions.Compiled), Token.Types.Operator },
-			{ new Regex(@"^[A-z]\w*", RegexOptions.Compiled), Token.Types.Identifier },
-			{ new Regex(@"^[()]", RegexOptions.Compiled), Token.Types.Brackets },
-			{ new Regex(@"^;", RegexOptions.Compiled), Token.Types.Semicolon },
+			{ WhitespacePattern(), null },
+			{ NumberPattern(), Token.Types.Number },
+			{ OperatorPattern(), Token.Types.Operator },
+			{ IdentifierPattern(), Token.Types.Identifier },
+			{ BracketsPattern(), Token.Types.Brackets },
+			{ SemicolonPattern(), Token.Types.Semicolon },
 		};
 		private static readonly String[] keywords =
 		{
@@ -64,7 +72,10 @@ namespace ALM
 							line++;
 							column = 0;
 						}
-						else column += (UInt32) match.Length;
+						else
+						{
+							column += (UInt32) match.Length;
+						}
 						hasChanges = true;
 						text = text[(match.Index + match.Length)..];
 						break;
@@ -74,5 +85,18 @@ namespace ALM
 			}
 			return [.. tokens];
 		}
+
+		[GeneratedRegex(@"^\s+", RegexOptions.Compiled)]
+		private static partial Regex WhitespacePattern();
+		[GeneratedRegex(@"^\d+(\.\d+)?", RegexOptions.Compiled)]
+		private static partial Regex NumberPattern();
+		[GeneratedRegex(@"^(\+|-|\*|/|:)", RegexOptions.Compiled)]
+		private static partial Regex OperatorPattern();
+		[GeneratedRegex(@"^[A-z]\w*", RegexOptions.Compiled)]
+		private static partial Regex IdentifierPattern();
+		[GeneratedRegex(@"^[()]", RegexOptions.Compiled)]
+		private static partial Regex BracketsPattern();
+		[GeneratedRegex(@"^;", RegexOptions.Compiled)]
+		private static partial Regex SemicolonPattern();
 	}
 }

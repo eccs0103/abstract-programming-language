@@ -23,10 +23,7 @@ namespace ALM
 			private Double? value;
 			public Double? Value
 			{
-				get
-				{
-					return this.value;
-				}
+				get => this.value;
 				set
 				{
 					this.value = this.Writeable
@@ -115,13 +112,11 @@ namespace ALM
 				{
 				case "data":
 					{
-						if (nodeUnaryOperator.Target is IdentifierNode nodeIdentifierTarget)
-						{
-							return this.memory.TryAdd(nodeIdentifierTarget.Address, new Data(null)) ?
-								nodeIdentifierTarget :
-								throw new ArgumentException($"Identifier '{nodeIdentifierTarget.Address}' already exists");
-						}
-						else throw new ArgumentException($"Identifier expected");
+						return nodeUnaryOperator.Target is IdentifierNode nodeIdentifierTarget
+							? this.memory.TryAdd(nodeIdentifierTarget.Address, new Data(null))
+								? nodeIdentifierTarget
+								: throw new ArgumentException($"Identifier '{nodeIdentifierTarget.Address}' already exists")
+							: throw new ArgumentException($"Identifier expected");
 					}
 				default: throw new ArgumentException($"Unidentified '{nodeUnaryOperator.Operator}' operator");
 				}
