@@ -55,7 +55,7 @@ namespace ALM
 				return $"{this.Value}";
 			}
 		}
-		private class RegisterNode(String address): Node()
+		private class IdentifierNode(String address): Node()
 		{
 			public String Address { get; } = address;
 			public override String ToString()
@@ -178,7 +178,7 @@ namespace ALM
 					}
 				case Token.Types.Identifier:
 					{
-						Node node = new RegisterNode(token.Value);
+						Node node = new IdentifierNode(token.Value);
 						index++;
 						return node;
 					}

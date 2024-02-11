@@ -46,11 +46,11 @@ namespace ALM
 			{
 				return nodeValue;
 			}
-			else if (node is RegisterNode nodeRegister)
+			else if (node is IdentifierNode nodeIdentifier)
 			{
-				return this.memory.TryGetValue(nodeRegister.Address, out Data? data)
+				return this.memory.TryGetValue(nodeIdentifier.Address, out Data? data)
 					? new ValueNode(data.Value)
-					: throw new Exception($"Identifier '{nodeRegister.Address}' does not exist");
+					: throw new Exception($"Identifier '{nodeIdentifier.Address}' does not exist");
 			}
 			else if (node is UnaryOperatorNode nodeUnaryOperator)
 			{
@@ -63,7 +63,7 @@ namespace ALM
 					}
 				case "data":
 					{
-						return this.ToValueNode(this.ToRegisterNode(nodeUnaryOperator));
+						return this.ToValueNode(this.ToIdentifierNode(nodeUnaryOperator));
 					}
 				case "print":
 					{
@@ -96,18 +96,18 @@ namespace ALM
 					}
 				case ":":
 					{
-						return this.ToValueNode(this.ToRegisterNode(nodeBinaryOperator));
+						return this.ToValueNode(this.ToIdentifierNode(nodeBinaryOperator));
 					}
 				default: throw new ArgumentException($"Unidentified '{nodeBinaryOperator.Operator}' operator");
 				}
 			}
 			else throw new ArgumentException($"Unable to evaluate value from {node}");
 		}
-		private RegisterNode ToRegisterNode(in Node node)
+		private IdentifierNode ToIdentifierNode(in Node node)
 		{
-			if (node is RegisterNode nodeRegister)
+			if (node is IdentifierNode nodeIdentifier)
 			{
-				return nodeRegister;
+				return nodeIdentifier;
 			}
 			else if (node is UnaryOperatorNode nodeUnaryOperator)
 			{
@@ -115,11 +115,11 @@ namespace ALM
 				{
 				case "data":
 					{
-						if (nodeUnaryOperator.Target is RegisterNode nodeRegisterTarget)
+						if (nodeUnaryOperator.Target is IdentifierNode nodeIdentifierTarget)
 						{
-							return this.memory.TryAdd(nodeRegisterTarget.Address, new Data(null)) ?
-								nodeRegisterTarget :
-								throw new ArgumentException($"Identifier '{nodeRegisterTarget.Address}' already exists");
+							return this.memory.TryAdd(nodeIdentifierTarget.Address, new Data(null)) ?
+								nodeIdentifierTarget :
+								throw new ArgumentException($"Identifier '{nodeIdentifierTarget.Address}' already exists");
 						}
 						else throw new ArgumentException($"Identifier expected");
 					}
@@ -133,12 +133,12 @@ namespace ALM
 				case ":":
 					{
 						ValueNode nodeValueRight = this.ToValueNode(nodeBinaryOperator.Right);
-						RegisterNode nodeRegisterLeft = this.ToRegisterNode(nodeBinaryOperator.Left);
-						if (!this.memory.TryGetValue(nodeRegisterLeft.Address, out Data? data)) throw new Exception($"Identifier '{nodeRegisterLeft.Address}' does not exist");
+						IdentifierNode nodeIdentifierLeft = this.ToIdentifierNode(nodeBinaryOperator.Left);
+						if (!this.memory.TryGetValue(nodeIdentifierLeft.Address, out Data? data)) throw new Exception($"Identifier '{nodeIdentifierLeft.Address}' does not exist");
 						data.Value = data.Writeable
 							? nodeValueRight.Value
-							: throw new InvalidOperationException($"Identifier '{nodeRegisterLeft.Address}' is non-writeable");
-						return nodeRegisterLeft;
+							: throw new InvalidOperationException($"Identifier '{nodeIdentifierLeft.Address}' is non-writeable");
+						return nodeIdentifierLeft;
 					}
 				default: throw new ArgumentException($"Unidentified '{nodeBinaryOperator.Operator}' operator");
 				}
