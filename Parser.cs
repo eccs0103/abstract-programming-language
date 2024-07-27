@@ -1,239 +1,268 @@
 ﻿using System.Globalization;
 
 using static System.Math;
+using static AbstractLanguageModel.Interpreter.Token;
 
-namespace ALM
+namespace AbstractLanguageModel;
+
+internal partial class Interpreter
 {
-	internal partial class Interpreter
+	private class Locator
 	{
-		private class Locator
+		public Locator(in Token[] tokens, uint begin, uint end)
 		{
-			public Locator(in Token[] tokens, UInt32 begin, UInt32 end)
+			this.Tokens = tokens;
+			this.Begin = begin;
+			this.End = end;
+			this.LocationChangeCallback += (position) =>
 			{
-				this.tokens = tokens;
-				this.Begin = begin;
-				this.End = end;
-				LocationChangeCallback += (position) =>
-				{
-					this.Position = position;
-				};
-			}
-			private readonly Token[] tokens;
-			public readonly UInt32 Begin;
-			public readonly UInt32 End;
-			public Position Position { get; private set; } = new(0, 0);
-			private event Action<Position> LocationChangeCallback;
-			public Token? GetToken(UInt32 index)
-			{
-				if (Max(this.Begin, 0) <= index && index < Min(tokens.Length, this.End))
-				{
-					Token token = tokens[index];
-					LocationChangeCallback.Invoke(token.Position);
-					return token;
-				}
-				else return null;
-			}
-			public Locator GetSublocator(UInt32 begin, UInt32 end)
-			{
-				Locator locator = new(this.tokens, begin, end);
-				locator.LocationChangeCallback += this.LocationChangeCallback.Invoke;
-				return locator;
-			}
+				this.Position = position;
+			};
 		}
-		public abstract class Node()
+		private readonly Token[] Tokens;
+		public readonly uint Begin;
+		public readonly uint End;
+		public Position Position { get; private set; } = new(0, 0);
+		private event Action<Position> LocationChangeCallback;
+		public Token? GetToken(uint index)
 		{
-		}
-		private class ValueNode(Double? value): Node()
-		{
-			public static readonly ValueNode Null = new(null);
-			public Double? Value { get; } = value;
-			public override String ToString()
+			if (Max(this.Begin, 0) <= index && index < Min(Tokens.Length, this.End))
 			{
-				return $"{this.Value}";
+				Token token = Tokens[index];
+				LocationChangeCallback.Invoke(token.Position);
+				return token;
 			}
+			else return null;
 		}
-		private class IdentifierNode(String address): Node()
+		public Locator GetSublocator(uint begin, uint end)
 		{
-			public String Address { get; } = address;
-			public override String ToString()
+			Locator locator = new(this.Tokens, begin, end);
+			locator.LocationChangeCallback += this.LocationChangeCallback.Invoke;
+			return locator;
+		}
+	}
+	public abstract class Node()
+	{
+	}
+	private class ValueNode(double? value): Node()
+	{
+		public static readonly ValueNode Null = new(null);
+		public double? Value { get; } = value;
+		public override string ToString()
+		{
+			return $"{this.Value}";
+		}
+	}
+	private class IdentifierNode(string name): Node()
+	{
+		public string Name { get; } = name;
+		public override string ToString()
+		{
+			return $"{this.Name}";
+		}
+	}
+	private class InvokationNode(IdentifierNode target, Node[] arguments): Node()
+	{
+		public IdentifierNode Target { get; } = target;
+		public Node[] Arguments { get; } = arguments;
+		public override string ToString()
+		{
+			return $"{this.Target}({string.Join<Node>(", ", this.Arguments)})";
+		}
+	}
+	private abstract class OperatorNode(string @operator): Node()
+	{
+		public string Operator { get; } = @operator;
+		public override string ToString()
+		{
+			return $"({this.Operator})";
+		}
+	}
+	private class UnaryOperatorNode(string @operator, Node target): OperatorNode(@operator)
+	{
+		public Node Target { get; set; } = target;
+		public override string ToString()
+		{
+			return $"{this.Operator}({this.Target})";
+		}
+	}
+	private class BinaryOperatorNode(string @operator, Node left, Node right): OperatorNode(@operator)
+	{
+		public Node Left { get; set; } = left;
+		public Node Right { get; set; } = right;
+		public override string ToString()
+		{
+			return $"({this.Left} {this.Operator} {this.Right})";
+		}
+	}
+	private static readonly Dictionary<string, string> Brackets = new()
+	{
+		{  @"(", @")" },
+	};
+	private Node InitialParse(in Locator locator, ref uint index)
+	{
+		return this.Degree1OperatorsParse(locator, ref index);
+	}
+	private Node Degree1OperatorsParse(in Locator locator, ref uint index)
+	{
+		Node nodeLeft = this.Degree2OperatorsParse(locator, ref index);
+		while (locator.GetToken(index) is Token token)
+		{
+			if (token is Token { Type: Types.Operator, Value: ":" })
 			{
-				return $"{this.Address}";
+				index++;
+				Node nodeRight = this.Degree2OperatorsParse(locator, ref index);
+				nodeLeft = new BinaryOperatorNode(token.Value, nodeLeft, nodeRight);
 			}
+			else break;
 		}
-		private abstract class OperatorNode(String @operator): Node()
+		return nodeLeft;
+	}
+	private Node Degree2OperatorsParse(in Locator locator, ref uint index)
+	{
+		Node nodeLeft = this.Degree3OperatorsParse(locator, ref index);
+		while (locator.GetToken(index) is Token token)
 		{
-			public String Operator { get; } = @operator;
-			public override String ToString()
+			if (token is Token { Type: Types.Operator, Value: "+" or "-" })
 			{
-				return $"({this.Operator})";
+				index++;
+				Node nodeRight = this.Degree3OperatorsParse(locator, ref index);
+				nodeLeft = new BinaryOperatorNode(token.Value, nodeLeft, nodeRight);
 			}
+			else break;
 		}
-		private class UnaryOperatorNode(String @operator, Node target): OperatorNode(@operator)
+		return nodeLeft;
+	}
+	private Node Degree3OperatorsParse(in Locator locator, ref uint index)
+	{
+		Node nodeLeft = this.VerticesParse(locator, ref index);
+		while (locator.GetToken(index) is Token token)
 		{
-			public Node Target { get; set; } = target;
-			public override String ToString()
+			if (token is Token { Type: Types.Operator, Value: "*" or "/" })
 			{
-				return $"{this.Operator}({this.Target})";
+				index++;
+				Node nodeRight = this.VerticesParse(locator, ref index);
+				nodeLeft = new BinaryOperatorNode(token.Value, nodeLeft, nodeRight);
 			}
+			else break;
 		}
-		private class BinaryOperatorNode(String @operator, Node left, Node right): OperatorNode(@operator)
+		return nodeLeft;
+	}
+	private Node[] ArgumentsParse(in Locator locator, ref uint index)
+	{
+		List<Node> arguments = [];
+		while (true)
 		{
-			public Node Left { get; set; } = left;
-			public Node Right { get; set; } = right;
-			public override String ToString()
+			arguments.Add(this.InitialParse(locator, ref index));
+
+			Token? token = locator.GetToken(index);
+			if (token is null)
 			{
-				return $"({this.Left} {this.Operator} {this.Right})";
+				break;
 			}
-		}
-		private static readonly Dictionary<String, String> brackets = new()
-		{
-			{  @"(", @")" },
-		};
-		private Node InitialParse(in Locator locator, ref UInt32 index)
-		{
-			return this.OperatorsGroup1Parse(locator, ref index);
-		}
-		private Node OperatorsGroup1Parse(in Locator locator, ref UInt32 index)
-		{
-			Node left = this.OperatorsGroup2Parse(locator, ref index);
-			while (locator.GetToken(index) is Token token)
+			else if (token is { Type: Types.Separator, Value: "," })
 			{
-				if (token is Token { Type: Token.Types.Operator, Value: ":" })
+				index++;
+				continue;
+			}
+			else throw new ArgumentException($"Expected ',' at {locator.Position}");
+		}
+		return [.. arguments];
+	}
+	private static Locator GetSublocator(in Locator locator, ref uint index, string bracket)
+	{
+		uint begin = index;
+		if (Brackets.TryGetValue(bracket, out string? pair))
+		{
+			for (uint edge = locator.End - 1; edge > begin; edge--)
+			{
+				if (locator.GetToken(edge) is Token { Type: Types.Bracket } subtoken && subtoken.Value == pair)
 				{
 					index++;
-					Node right = this.OperatorsGroup2Parse(locator, ref index);
-					left = new BinaryOperatorNode(token.Value, left, right);
+					return locator.GetSublocator(begin + 1, edge);
 				}
-				else break;
 			}
-			return left;
+			throw new ArgumentException($"Expected '{pair}' at {locator.Position}");
 		}
-		private Node OperatorsGroup2Parse(in Locator locator, ref UInt32 index)
+		else throw new ArgumentException($"Unable to get pair of {bracket} at {locator.Position}");
+	}
+	private Node VerticesParse(in Locator locator, ref uint index)
+	{
+		if (locator.GetToken(index) is Token token)
 		{
-			Node left = this.OperatorsGroup3Parse(locator, ref index);
-			while (locator.GetToken(index) is Token token)
+			switch (token.Type)
 			{
-				if (token is Token { Type: Token.Types.Operator, Value: "+" or "-" })
+			case Types.Number:
 				{
+					ValueNode nodeValue = new(Convert.ToDouble(token.Value, CultureInfo.GetCultureInfo("en-US")));
 					index++;
-					Node right = this.OperatorsGroup3Parse(locator, ref index);
-					left = new BinaryOperatorNode(token.Value, left, right);
+					return nodeValue;
 				}
-				else break;
-			}
-			return left;
-		}
-		private Node OperatorsGroup3Parse(in Locator locator, ref UInt32 index)
-		{
-			Node left = this.VerticesParse(locator, ref index);
-			while (locator.GetToken(index) is Token token)
-			{
-				if (token is Token { Type: Token.Types.Operator, Value: "*" or "/" })
+			case Types.Identifier:
 				{
+					IdentifierNode nodeIdentifier = new(token.Value);
 					index++;
-					Node right = this.VerticesParse(locator, ref index);
-					left = new BinaryOperatorNode(token.Value, left, right);
-				}
-				else break;
-			}
-			return left;
-		}
-		private Node BracketsParse(in Locator locator, ref UInt32 index)
-		{
-			if (locator.GetToken(index) is Token { Type: Token.Types.Brackets } token)
-			{
-				UInt32 begin = index;
-				if (brackets.TryGetValue(token.Value, out String? pair))
-				{
-					for (UInt32 edge = locator.End - 1; edge > begin; edge--)
+					if (locator.GetToken(index) is Token { Type: Types.Bracket, Value: "(" } subtoken)
 					{
-						if (locator.GetToken(edge) is Token subtoken && subtoken.Value == pair)
-						{
-							index++;
-							Node node = this.InitialParse(locator.GetSublocator(begin + 1, edge), ref index);
-							index++;
-							return node;
-						}
-					}
-					throw new ArgumentException($"Expected '{pair}' at {locator.Position}");
-				}
-				else throw new ArgumentException($"Unable to get pair of {token.Value} at {locator.Position}");
-			}
-			else throw new NullReferenceException($"Expected bracket at {locator.Position}");
-		}
-		private Node VerticesParse(in Locator locator, ref UInt32 index)
-		{
-			if (locator.GetToken(index) is Token token)
-			{
-				switch (token.Type)
-				{
-				case Token.Types.Number:
-					{
-						Node node = new ValueNode(Convert.ToDouble(token.Value, CultureInfo.GetCultureInfo("en-US")));
+						Node[] arguments = this.ArgumentsParse(GetSublocator(locator, ref index, subtoken.Value), ref index);
 						index++;
-						return node;
+						return new InvokationNode(nodeIdentifier, arguments);
 					}
-				case Token.Types.Identifier:
+					return nodeIdentifier;
+				}
+			case Types.Keyword:
+				{
+					switch (token.Value)
 					{
-						Node node = new IdentifierNode(token.Value);
-						index++;
-						return node;
-					}
-				case Token.Types.Keyword:
-					{
-						switch (token.Value)
-						{
-						case "data":
-							{
-								index++;
-								Node target = this.VerticesParse(locator, ref index);
-								return new UnaryOperatorNode(token.Value, target);
-							}
-						case "print":
-							{
-								index++;
-								Node target = this.BracketsParse(locator, ref index);
-								return new UnaryOperatorNode(token.Value, target);
-							}
-						case "null":
-							{
-								index++;
-								return ValueNode.Null;
-							}
-						default: throw new ArgumentException($"Unidentified keyword '{token.Value}' at {locator.Position}");
-						}
-					}
-				case Token.Types.Operator:
-					{
-						if (token.Value is "+" or "-")
+					case "data":
 						{
 							index++;
-							Node target = this.VerticesParse(locator, ref index);
-							return new UnaryOperatorNode(token.Value, target);
+							Node nodeTarget = this.VerticesParse(locator, ref index);
+							return new UnaryOperatorNode(token.Value, nodeTarget);
 						}
-						else throw new ArgumentException($"Unidentified operator '{token.Value}' at {locator.Position}");
+					case "null":
+						{
+							index++;
+							return ValueNode.Null;
+						}
+					default: throw new ArgumentException($"Unidentified keyword '{token.Value}' at {locator.Position}");
 					}
-				case Token.Types.Brackets: return this.BracketsParse(locator, ref index);
-				default: throw new ArgumentException($"Unidentified token '{token.Value}' at {locator.Position}");
 				}
-			}
-			else throw new NullReferenceException($"Expected expression at {locator.Position}");
-		}
-		public Node[] Parse(in Token[] tokens)
-		{
-			List<Node> trees = [];
-			Locator locator = new(tokens, 0, (UInt32) tokens.Length);
-			for (UInt32 index = 0; index < tokens.Length;)
-			{
-				Node tree = this.InitialParse(locator, ref index);
-				if (locator.GetToken(index) is Token { Type: Token.Types.Semicolon, Value: ";" })
+			case Types.Operator:
 				{
-					trees.Add(tree);
-					index++;
+					if (token.Value is "+" or "-")
+					{
+						index++;
+						Node target = this.VerticesParse(locator, ref index);
+						return new UnaryOperatorNode(token.Value, target);
+					}
+					else throw new ArgumentException($"Unidentified operator '{token.Value}' at {locator.Position}");
 				}
-				else throw new ArgumentException($"Expected ';' at {locator.Position}");
+			case Types.Bracket:
+				{
+					Node node = this.InitialParse(GetSublocator(locator, ref index, token.Value), ref index);
+					index++;
+					return node;
+				}
+			default: throw new ArgumentException($"Unidentified token '{token.Value}' at {locator.Position}");
 			}
-			return [.. trees];
 		}
+		else throw new NullReferenceException($"Expected expression at {locator.Position}");
+	}
+	public IEnumerable<Node> Parse(in Token[] tokens)
+	{
+		List<Node> trees = [];
+		Locator locator = new(tokens, 0, (uint) tokens.Length);
+		for (uint index = 0; index < tokens.Length;)
+		{
+			Node nodeTree = this.InitialParse(locator, ref index);
+			if (locator.GetToken(index) is Token { Type: Types.Separator, Value: ";" })
+			{
+				trees.Add(nodeTree);
+				index++;
+			}
+			else throw new ArgumentException($"Expected ';' at {locator.Position}");
+		}
+		return trees;
 	}
 }

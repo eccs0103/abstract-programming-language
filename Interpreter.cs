@@ -1,15 +1,14 @@
-﻿namespace ALM
+﻿namespace AbstractLanguageModel;
+
+internal partial class Interpreter
 {
-	internal partial class Interpreter
+	public class Position(uint line, uint column)
 	{
-		public class Position(UInt32 line, UInt32 column)
+		public uint Line { get; } = line;
+		public uint Column { get; } = column;
+		public override string ToString()
 		{
-			public UInt32 Line { get; } = line;
-			public UInt32 Column { get; } = column;
-			public override String ToString()
-			{
-				return $"line {this.Line + 1} column {this.Column + 1}";
-			}
+			return $"line {this.Line + 1} column {this.Column + 1}";
 		}
 	}
 }

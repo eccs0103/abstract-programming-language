@@ -1,8 +1,8 @@
 ﻿using System.Text.RegularExpressions;
 
-using ALM;
+using AbstractLanguageModel;
 
-using static ALM.Interpreter;
+using static AbstractLanguageModel.Interpreter;
 
 internal partial class Program
 {
@@ -21,19 +21,24 @@ internal partial class Program
 		{
 			try
 			{
-				String input = Console.ReadLine() ?? throw new NullReferenceException($"Input cant be null");
+				string input = Console.ReadLine() ?? throw new NullReferenceException($"Input cant be null");
 				switch (mode)
 				{
 				case RunModes.Debug:
 					{
-						Token[] tokens = interpreter.Tokenize(input);
-						Console.WriteLine($"{String.Join<Token>("\n", tokens)}\n");
-						Node[] trees = interpreter.Parse(tokens);
-						Console.WriteLine($"{String.Join<Node>("\n", trees)}\n");
+						Token[] tokens = Tokenize(input);
+						Console.WriteLine($"{string.Join<Token>("\n", tokens)}\n");
+						IEnumerable<Node> trees = interpreter.Parse(tokens);
+						Console.WriteLine($"{string.Join("\n", trees)}\n");
 						interpreter.Evaluate(trees);
 					}
 					break;
 				case RunModes.Internal:
+					{
+						interpreter.Evaluate(input);
+					}
+					break;
+				case RunModes.External:
 					{
 						Match match = instructions.Match(input);
 						if (!match.Success) throw new FormatException($"Invalid instruction");
@@ -47,7 +52,7 @@ internal partial class Program
 								if (file.Exists)
 								{
 									Console.WriteLine($"Running {file.Name}");
-									String content = File.ReadAllText(file.FullName);
+									string content = File.ReadAllText(file.FullName);
 									interpreter.Evaluate(input);
 								}
 								else throw new NullReferenceException($"File {file.Name} in {file.Directory?.FullName} doesn't exist");
@@ -55,11 +60,6 @@ internal partial class Program
 							break;
 						default: continue;
 						}
-					}
-					break;
-				case RunModes.External:
-					{
-						interpreter.Evaluate(input);
 					}
 					break;
 				default: throw new ArgumentException($"Unidentified run mode '{nameof(mode)}'");
