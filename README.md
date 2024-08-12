@@ -1,4 +1,4 @@
-# Abstract Language Model
+# Abstract Programming Language
 
 ## Feed
 
