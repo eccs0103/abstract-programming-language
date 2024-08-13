@@ -1,6 +1,22 @@
 # Abstract Programming Language
 
 ## Feed
+### 0.1.16 (13.08.2024)
+- Added strings and the `import` keyword. Currently, strings are used only to specify the path after the `import` keyword. The `import` keyword allows you to execute code from a file at the specified path using the **current** interpreter.
+	#### ../Test.apl
+	```apl
+	Write(AnyVariable);
+	```
+	#### Main.apl
+	```apl
+	data AnyVariable: 3;
+	import "../Test.apl";
+	```
+- Added the ability to specify paths as interpreter launch arguments, thereby importing other scripts immediately upon execution.
+	```
+	APL.exe ../Test1.apl ../Test2.apl
+	```
+
 
 ### 0.1.15 (03.08.2024)
 - Added the future to call functions. Currently, there is only the `Write(...Values)` function instead of the `print` keyword.

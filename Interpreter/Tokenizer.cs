@@ -10,6 +10,7 @@ internal partial class Interpreter
 		public enum Types
 		{
 			Number,
+			String,
 			Identifier,
 			Keyword,
 			Operator,
@@ -35,6 +36,7 @@ internal partial class Interpreter
 
 	private static readonly Dictionary<Regex, Token.Types?> Dictionary = new()
 	{
+		{ StringPattern(), Token.Types.String },
 		{ WhitespacePattern(), null },
 		{ NumberPattern(), Token.Types.Number },
 		{ OperatorPattern(), Token.Types.Operator },
@@ -42,12 +44,14 @@ internal partial class Interpreter
 		{ BracketsPattern(), Token.Types.Bracket },
 		{ SeparatorPattern(), Token.Types.Separator },
 	};
-	private static readonly HashSet<string> Keywords = ["data", "null"];
+	private static readonly HashSet<string> Keywords = ["data", "null", "import"];
 
 	[GeneratedRegex(@"^\s+", RegexOptions.Compiled)]
 	private static partial Regex WhitespacePattern();
 	[GeneratedRegex(@"^\d+(\.\d+)?", RegexOptions.Compiled)]
 	private static partial Regex NumberPattern();
+	[GeneratedRegex(@"^""(.)*?(?<!\\)""", RegexOptions.Compiled)]
+	private static partial Regex StringPattern();
 	[GeneratedRegex(@"^(\+|-|\*|/|:)", RegexOptions.Compiled)]
 	private static partial Regex OperatorPattern();
 	[GeneratedRegex(@"^[A-z]\w*", RegexOptions.Compiled)]

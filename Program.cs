@@ -5,12 +5,11 @@ using static APL.Interpreter;
 internal partial class Program
 {
 	private static readonly Interpreter Interpreter = new();
-	private static void Debug()
+	private static void Debug(in string input)
 	{
 		ConsoleColor foreground = Console.ForegroundColor;
 		try
 		{
-			string input = Console.ReadLine() ?? throw new NullReferenceException($"Input cant be null");
 			Console.WriteLine();
 			Console.ForegroundColor = ConsoleColor.Yellow;
 			Token[] tokens = Tokenize(input);
@@ -34,12 +33,11 @@ internal partial class Program
 			Console.ForegroundColor = foreground;
 		}
 	}
-	private static void InternalRun()
+	private static void Run(in string input)
 	{
 		ConsoleColor foreground = Console.ForegroundColor;
 		try
 		{
-			string input = Console.ReadLine() ?? throw new NullReferenceException($"Input cant be null");
 			Console.WriteLine();
 			Console.ForegroundColor = ConsoleColor.Yellow;
 			Interpreter.Evaluate(input);
@@ -53,51 +51,33 @@ internal partial class Program
 			Console.ForegroundColor = foreground;
 		}
 	}
-	private static void ExternalRun()
+	private static IEnumerable<string> GenerateInstructions(IEnumerable<string> initial)
 	{
-		static void ExternalRunWalker(in DirectoryInfo directory)
+		foreach (string instruction in initial)
 		{
-
-			foreach (FileInfo file in directory.GetFiles())
-			{
-				if (!file.Extension.Equals(".APL", StringComparison.CurrentCultureIgnoreCase)) continue;
-				Interpreter.Evaluate(File.ReadAllText(file.FullName));
-			}
-			foreach (DirectoryInfo subdirectory in directory.GetDirectories())
-			{
-				ExternalRunWalker(subdirectory);
-			}
+			string input = $"import \"{instruction}\";";
+			Console.WriteLine(input);
+			yield return input;
 		}
-
-		try
+		while (true)
 		{
-			ExternalRunWalker(new(Directory.GetCurrentDirectory()));
-		}
-		catch (Exception exception)
-		{
-			Console.WriteLine($"{exception.Message}\n");
-		}
-		finally
-		{
-			Console.ReadKey();
+			yield return Console.ReadLine() ?? throw new NullReferenceException($"Input cant be null");
 		}
 	}
-	private enum RunModes
+	private enum RunModes: byte
 	{
 		Debug,
-		Internal,
-		External,
+		Run,
 	}
-	static void Main()
+	static void Main(string[] args)
 	{
-		RunModes mode = RunModes.Internal;
-		while (true)
+		RunModes mode = RunModes.Run;
+		foreach (string instruction in GenerateInstructions(args))
 		{
 			switch (mode)
 			{
-			case RunModes.Debug: Debug(); break;
-			case RunModes.Internal: InternalRun(); break;
-			case RunModes.External: ExternalRun(); return;
+			case RunModes.Debug: Debug(instruction); break;
+			case RunModes.Run: Run(instruction); break;
 			default: throw new ArgumentException($"Unidentified run mode '{nameof(mode)}'");
 			}
 		}

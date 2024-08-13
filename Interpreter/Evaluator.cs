@@ -58,6 +58,14 @@ internal partial class Interpreter
 			return PreventEvaluation<T>(this);
 		}
 	}
+	private partial class PathNode: Node
+	{
+		public override T Evaluate<T>(in Interpreter interpreter)
+		{
+			if (IsCompatible<T, PathNode>()) return Cast<T>(this);
+			return PreventEvaluation<T>(this);
+		}
+	}
 	private partial class IdentifierNode: Node
 	{
 		public override T Evaluate<T>(in Interpreter interpreter)
@@ -111,6 +119,15 @@ internal partial class Interpreter
 				case "data":
 				{
 					return Cast<T>(this.Evaluate<IdentifierNode>(interpreter).Evaluate<ValueNode>(interpreter));
+				}
+				case "import":
+				{
+					string path = this.Target.Evaluate<PathNode>(interpreter).Path;
+					FileInfo file = new(path);
+					if (!file.Exists) throw new Exception($"File {file.FullName} doesn't exist");
+					if (!file.Extension.Equals(".APL", StringComparison.CurrentCultureIgnoreCase)) throw new Exception($"Only files with the .APL extension can be imported");
+					interpreter.Evaluate(File.ReadAllText(file.FullName));
+					return Cast<T>(new ValueNode(null, this.RangePosition));
 				}
 				default: throw new ArgumentException($"Unidentified '{this.Operator}' operator at {this.RangePosition.Begin}");
 				}

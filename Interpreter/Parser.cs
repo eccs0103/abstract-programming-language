@@ -1,5 +1,7 @@
 ﻿using System.Globalization;
 
+using Newtonsoft.Json;
+
 using static System.Math;
 using static APL.Interpreter.Token;
 
@@ -40,6 +42,14 @@ internal partial class Interpreter
 		public override string ToString()
 		{
 			return $"{this.Value}";
+		}
+	}
+	private partial class PathNode(in string path, in Range<Position> range): Node(range)
+	{
+		public readonly string Path = path;
+		public override string ToString()
+		{
+			return $"\"{this.Path}\"";
 		}
 	}
 	private partial class IdentifierNode(in string name, in Range<Position> range): Node(range)
@@ -173,6 +183,12 @@ internal partial class Interpreter
 			walker.Index++;
 			return value;
 		}
+		case Types.String:
+		{
+			PathNode path = new(JsonConvert.DeserializeObject<string>(token.Value) ?? throw new Exception($"Unable to parse path at {token.RangePosition.Begin}"), token.RangePosition);
+			walker.Index++;
+			return path;
+		}
 		case Types.Identifier:
 		{
 			IdentifierNode identifier = new(token.Value, token.RangePosition);
@@ -198,6 +214,12 @@ internal partial class Interpreter
 			{
 				walker.Index++;
 				return new ValueNode(null, token.RangePosition);
+			}
+			case "import":
+			{
+				walker.Index++;
+				Node target = this.VerticesParse(walker);
+				return new UnaryOperatorNode(token.Value, target, new(token.RangePosition.Begin, target.RangePosition.End));
 			}
 			default: throw new ArgumentException($"Unidentified keyword '{token.Value}' at {token.RangePosition.Begin}");
 			}
