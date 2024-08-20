@@ -6,23 +6,92 @@ namespace APL;
 
 internal partial class Interpreter
 {
-	private class Datul(in double? value, in Datul.Initializer initializer)
+	private class Datul(in object? value, in Datul.Initializer initializer)
 	{
 		public readonly struct Initializer(in bool mutable = true)
 		{
 			public readonly bool Mutable = mutable;
 		}
 		public readonly bool Mutable = initializer.Mutable;
-		private double? value = value;
-		public double? Value
+		private object? _Value = value;
+		public object? Value
 		{
-			get => this.value;
+			get => this._Value;
 			set
 			{
 				if (!this.Mutable) return;
-				this.value = value;
+				this._Value = value;
 			}
 		}
+	}
+
+	//private class MemberInformation(in string type, in object? value, in MemberInformation.Initializer initializer)
+	//{
+	//	public class Initializer(in bool mutable = true)
+	//	{
+	//		public readonly bool Mutable = mutable;
+	//	}
+	//	public readonly string Type = type;
+	//	private object? _Value = value;
+	//	public readonly bool Mutable = initializer.Mutable;
+	//	public object? Value
+	//	{
+	//		get => this._Value;
+	//		set
+	//		{
+	//			if (!this.Mutable) return;
+	//			this._Value = value;
+	//		}
+	//	}
+	//}
+	//private class TypeInformation(in Dictionary<string, MemberInformation> value, in TypeInformation.Initializer initializer): MemberInformation("Type", value, initializer)
+	//{
+	//	public new class Initializer(): MemberInformation.Initializer(false)
+	//	{
+
+	//	}
+	//	public new Dictionary<string, MemberInformation> Value
+	//	{
+	//		get => base.Value;
+	//		set => base.Value = value;
+	//	}
+	//}
+	//private readonly Dictionary<string, MemberInformation> Memory2 = new()
+	//{
+	//	{ "Type", new TypeInformation(null, new()) }
+	//};
+
+	private static string? GlobalFetch(in string address)
+	{
+		try
+		{
+			using HttpClient client = new();
+			HttpResponseMessage response = client.GetAsync(address).Result;
+			response.EnsureSuccessStatusCode();
+			return response.Content.ReadAsStringAsync().Result;
+		}
+		catch (Exception)
+		{
+			return null;
+		}
+	}
+	private static string? LocalFetch(in string address)
+	{
+		try
+		{
+			FileInfo file = new(address);
+			if (!file.Extension.Equals(".APL", StringComparison.OrdinalIgnoreCase)) throw new FileNotFoundException($"Only files with the .APL extension can be imported");
+			using StreamReader reader = file.OpenText();
+			return reader.ReadToEnd();
+		}
+		catch (Exception)
+		{
+			return null;
+		}
+	}
+	private static string? Fetch(in string address)
+	{
+		return LocalFetch(address) ?? GlobalFetch(address);
 	}
 
 	private readonly Dictionary<string, Datul> Memory = new()
@@ -30,12 +99,11 @@ internal partial class Interpreter
 		{ "Pi", new Datul(PI, new(false)) },
 		{ "E", new Datul(E, new(false)) },
 	};
-
-	public abstract partial class Node
+	private abstract partial class Node
 	{
 		protected static T PreventEvaluation<T>(in Node node) where T : Node
 		{
-			throw new Exception($"Unable to evaluate {typeof(T).Name} from {node.GetType().Name} at {node.RangePosition.Begin}");
+			throw new Error($"Unable to evaluate {typeof(T).Name} from {node.GetType().Name}", node.RangePosition.Begin);
 		}
 		protected static T Cast<T>(in Node node) where T : Node
 		{
@@ -58,21 +126,13 @@ internal partial class Interpreter
 			return PreventEvaluation<T>(this);
 		}
 	}
-	private partial class PathNode: Node
-	{
-		public override T Evaluate<T>(in Interpreter interpreter)
-		{
-			if (IsCompatible<T, PathNode>()) return Cast<T>(this);
-			return PreventEvaluation<T>(this);
-		}
-	}
 	private partial class IdentifierNode: Node
 	{
 		public override T Evaluate<T>(in Interpreter interpreter)
 		{
 			if (IsCompatible<T, ValueNode>())
 			{
-				if (!interpreter.Memory.TryGetValue(this.Name, out Datul? datul)) throw new Exception($"Identifier '{this.Name}' does not exist at {this.RangePosition.Begin}");
+				if (!interpreter.Memory.TryGetValue(this.Name, out Datul? datul)) throw new Error($"Identifier '{this.Name}' does not exist", this.RangePosition.Begin);
 				return Cast<T>(new ValueNode(datul.Value, this.RangePosition));
 			}
 			if (IsCompatible<T, IdentifierNode>()) return Cast<T>(this);
@@ -92,12 +152,13 @@ internal partial class Interpreter
 					StringBuilder builder = new();
 					foreach (Node argument in this.Arguments)
 					{
-						builder.Append($"{argument.Evaluate<ValueNode>(interpreter).Value}\n");
+						if (builder.Length > 0) builder.Append('\n');
+						builder.Append(argument.Evaluate<ValueNode>(interpreter).GetValue<double>());
 					}
 					Console.WriteLine(builder.ToString());
 					return Cast<T>(new ValueNode(null, this.RangePosition));
 				}
-				default: throw new Exception($"Function '{this.Target.Name}' does not exist at {this.RangePosition.Begin}");
+				default: throw new Error($"Function '{this.Target.Name}' does not exist", this.RangePosition.Begin);
 				}
 			}
 			return PreventEvaluation<T>(this);
@@ -122,14 +183,12 @@ internal partial class Interpreter
 				}
 				case "import":
 				{
-					string path = this.Target.Evaluate<PathNode>(interpreter).Path;
-					FileInfo file = new(path);
-					if (!file.Exists) throw new Exception($"File {file.FullName} doesn't exist");
-					if (!file.Extension.Equals(".APL", StringComparison.CurrentCultureIgnoreCase)) throw new Exception($"Only files with the .APL extension can be imported");
-					interpreter.Evaluate(File.ReadAllText(file.FullName));
+					string address = this.Target.Evaluate<ValueNode>(interpreter).GetValue<string>();
+					string input = Fetch(address) ?? throw new Error($"Executable APL file in '{address}' doesn't exist", this.RangePosition.Begin);
+					interpreter.Run(input);
 					return Cast<T>(new ValueNode(null, this.RangePosition));
 				}
-				default: throw new ArgumentException($"Unidentified '{this.Operator}' operator at {this.RangePosition.Begin}");
+				default: throw new Error($"Unidentified '{this.Operator}' operator", this.RangePosition.Begin);
 				}
 			}
 			if (IsCompatible<T, IdentifierNode>())
@@ -138,11 +197,11 @@ internal partial class Interpreter
 				{
 				case "data":
 				{
-					IdentifierNode identifier = this.Target.Evaluate<IdentifierNode>(interpreter) ?? throw new ArgumentException($"Identifier expected at {this.RangePosition.Begin}");
-					if (!interpreter.Memory.TryAdd(identifier.Name, new Datul(null, new(true)))) throw new ArgumentException($"Identifier '{identifier.Name}' already exists at {this.RangePosition.Begin}");
+					IdentifierNode identifier = this.Target.Evaluate<IdentifierNode>(interpreter);
+					if (!interpreter.Memory.TryAdd(identifier.Name, new Datul(null, new(true)))) throw new Error($"Identifier '{identifier.Name}' already exists", this.RangePosition.Begin);
 					return Cast<T>(identifier);
 				}
-				default: throw new ArgumentException($"Unidentified '{this.Operator}' operator at {this.RangePosition.Begin}");
+				default: throw new Error($"Unidentified '{this.Operator}' operator", this.RangePosition.Begin);
 				}
 			}
 			return PreventEvaluation<T>(this);
@@ -158,33 +217,33 @@ internal partial class Interpreter
 				{
 				case "+":
 				{
-					double left = this.Left.Evaluate<ValueNode>(interpreter).Value ?? throw new NullReferenceException($"Operator '{this.Operator}' cannot be applied to null operand at {this.RangePosition.Begin}");
-					double right = this.Right.Evaluate<ValueNode>(interpreter).Value ?? throw new NullReferenceException($"Operator '{this.Operator}' cannot be applied to null operand at {this.RangePosition.Begin}");
+					double left = this.Left.Evaluate<ValueNode>(interpreter).GetValue<double>();
+					double right = this.Right.Evaluate<ValueNode>(interpreter).GetValue<double>();
 					return Cast<T>(new ValueNode(left + right, this.RangePosition));
 				}
 				case "-":
 				{
-					double left = this.Left.Evaluate<ValueNode>(interpreter).Value ?? throw new NullReferenceException($"Operator '{this.Operator}' cannot be applied to null operand at {this.RangePosition.Begin}");
-					double right = this.Right.Evaluate<ValueNode>(interpreter).Value ?? throw new NullReferenceException($"Operator '{this.Operator}' cannot be applied to null operand at {this.RangePosition.Begin}");
+					double left = this.Left.Evaluate<ValueNode>(interpreter).GetValue<double>();
+					double right = this.Right.Evaluate<ValueNode>(interpreter).GetValue<double>();
 					return Cast<T>(new ValueNode(left - right, this.RangePosition));
 				}
 				case "*":
 				{
-					double left = this.Left.Evaluate<ValueNode>(interpreter).Value ?? throw new NullReferenceException($"Operator '{this.Operator}' cannot be applied to null operand at {this.RangePosition.Begin}");
-					double right = this.Right.Evaluate<ValueNode>(interpreter).Value ?? throw new NullReferenceException($"Operator '{this.Operator}' cannot be applied to null operand at {this.RangePosition.Begin}");
+					double left = this.Left.Evaluate<ValueNode>(interpreter).GetValue<double>();
+					double right = this.Right.Evaluate<ValueNode>(interpreter).GetValue<double>();
 					return Cast<T>(new ValueNode(left * right, this.RangePosition));
 				}
 				case "/":
 				{
-					double left = this.Left.Evaluate<ValueNode>(interpreter).Value ?? throw new NullReferenceException($"Operator '{this.Operator}' cannot be applied to null operand at {this.RangePosition.Begin}");
-					double right = this.Right.Evaluate<ValueNode>(interpreter).Value ?? throw new NullReferenceException($"Operator '{this.Operator}' cannot be applied to null operand at {this.RangePosition.Begin}");
+					double left = this.Left.Evaluate<ValueNode>(interpreter).GetValue<double>();
+					double right = this.Right.Evaluate<ValueNode>(interpreter).GetValue<double>();
 					return Cast<T>(new ValueNode(left / right, this.RangePosition));
 				}
 				case ":":
 				{
 					return Cast<T>(this.Evaluate<IdentifierNode>(interpreter).Evaluate<ValueNode>(interpreter));
 				}
-				default: throw new ArgumentException($"Unidentified '{this.Operator}' operator at {this.RangePosition.Begin}");
+				default: throw new Error($"Unidentified '{this.Operator}' operator", this.RangePosition.Begin);
 				}
 			}
 			if (IsCompatible<T, IdentifierNode>())
@@ -195,27 +254,22 @@ internal partial class Interpreter
 				{
 					ValueNode right = this.Right.Evaluate<ValueNode>(interpreter);
 					IdentifierNode left = this.Left.Evaluate<IdentifierNode>(interpreter);
-					if (!interpreter.Memory.TryGetValue(left.Name, out Datul? datul)) throw new Exception($"Identifier '{left.Name}' does not exist at {this.RangePosition.Begin}");
-					if (!datul.Mutable) throw new InvalidOperationException($"Identifier '{left.Name}' is non-mutable at {this.RangePosition.Begin}");
-					datul.Value = right.Value;
+					if (!interpreter.Memory.TryGetValue(left.Name, out Datul? datul)) throw new Error($"Identifier '{left.Name}' does not exist", this.RangePosition.Begin);
+					if (!datul.Mutable) throw new Error($"Identifier '{left.Name}' is non-mutable", this.RangePosition.Begin);
+					datul.Value = right.GetValue<object>();
 					return Cast<T>(left);
 				}
-				default: throw new ArgumentException($"Unidentified '{this.Operator}' operator at {this.RangePosition.Begin}");
+				default: throw new Error($"Unidentified '{this.Operator}' operator", this.RangePosition.Begin);
 				}
 			}
 			return PreventEvaluation<T>(this);
 		}
 	}
-
-	public void Evaluate(in IEnumerable<Node> trees)
+	private void Evaluate(in IEnumerable<Node> trees)
 	{
 		foreach (Node tree in trees)
 		{
 			tree.Evaluate<ValueNode>(this);
 		}
-	}
-	public void Evaluate(in string code)
-	{
-		this.Evaluate(this.Parse(Tokenize(code)));
 	}
 }

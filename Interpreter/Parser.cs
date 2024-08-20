@@ -3,7 +3,6 @@
 using Newtonsoft.Json;
 
 using static System.Math;
-using static APL.Interpreter.Token;
 
 namespace APL;
 
@@ -11,7 +10,7 @@ internal partial class Interpreter
 {
 	private class Walker(in Token[] tokens, in Range<uint> range)
 	{
-		private static readonly Token DefaultToken = new(Types.Separator, string.Empty, new(new(0, 0), new(0, 0)));
+		private static readonly Token DefaultToken = new(Token.Types.Separator, string.Empty, new(new(0, 0), new(0, 0)));
 		private readonly Token[] Tokens = tokens;
 		public readonly Range<uint> RangeIndex = range;
 		private Wrapper<uint> IndexWrapper = new(0);
@@ -32,24 +31,22 @@ internal partial class Interpreter
 		}
 	}
 
-	public abstract partial class Node(in Range<Position> range)
+	private abstract partial class Node(in Range<Position> range)
 	{
 		public readonly Range<Position> RangePosition = range;
 	}
-	private partial class ValueNode(in double? value, in Range<Position> range): Node(range)
+	private partial class ValueNode(in object? value, in Range<Position> range): Node(range)
 	{
-		public readonly double? Value = value;
+		private readonly object? Value = value;
+		public T GetValue<T>()
+		{
+			if (this.Value is T result) return result;
+			string from = this.Value == null ? "Null" : this.Value.GetType().Name;
+			throw new Error($"Unable to convert from {from} to {typeof(T).Name}", this.RangePosition.Begin);
+		}
 		public override string ToString()
 		{
 			return $"{this.Value}";
-		}
-	}
-	private partial class PathNode(in string path, in Range<Position> range): Node(range)
-	{
-		public readonly string Path = path;
-		public override string ToString()
-		{
-			return $"\"{this.Path}\"";
 		}
 	}
 	private partial class IdentifierNode(in string name, in Range<Position> range): Node(range)
@@ -72,10 +69,6 @@ internal partial class Interpreter
 	private abstract partial class OperatorNode(in string @operator, in Range<Position> range): Node(range)
 	{
 		public readonly string Operator = @operator;
-		public override string ToString()
-		{
-			return $"({this.Operator})";
-		}
 	}
 	private partial class UnaryOperatorNode(in string @operator, in Node target, in Range<Position> range): OperatorNode(@operator, range)
 	{
@@ -106,7 +99,7 @@ internal partial class Interpreter
 		while (walker.InRange)
 		{
 			Token token = walker.Token;
-			if (!token.Match(Types.Operator, ":")) break;
+			if (!token.Match(Token.Types.Operator, ":")) break;
 			walker.Index++;
 			Node right = this.Degree2OperatorsParse(walker);
 			left = new BinaryOperatorNode(token.Value, left, right, new(left.RangePosition.Begin, right.RangePosition.End));
@@ -119,7 +112,7 @@ internal partial class Interpreter
 		while (walker.InRange)
 		{
 			Token token = walker.Token;
-			if (!token.Match(Types.Operator, "+", "-")) break;
+			if (!token.Match(Token.Types.Operator, "+", "-")) break;
 			walker.Index++;
 			Node right = this.Degree3OperatorsParse(walker);
 			left = new BinaryOperatorNode(token.Value, left, right, new(left.RangePosition.Begin, right.RangePosition.End));
@@ -132,7 +125,7 @@ internal partial class Interpreter
 		while (walker.InRange)
 		{
 			Token token = walker.Token;
-			if (!token.Match(Types.Operator, "*", "/")) break;
+			if (!token.Match(Token.Types.Operator, "*", "/")) break;
 			walker.Index++;
 			Node right = this.VerticesParse(walker);
 			left = new BinaryOperatorNode(token.Value, left, right, new(left.RangePosition.Begin, right.RangePosition.End));
@@ -148,59 +141,59 @@ internal partial class Interpreter
 
 			if (!walker.InRange) break;
 			Token token = walker.Token;
-			if (!token.Match(Types.Separator, ",")) throw new ArgumentException($"Expected ',' at {token.RangePosition.Begin}");
+			if (!token.Match(Token.Types.Separator, ",")) throw new Error($"Expected ','", token.RangePosition.Begin);
 			walker.Index++;
 		}
 		return [.. arguments];
 	}
 	private static Walker GetSubwalker(in Walker walker, in string bracket)
 	{
-		if (!Brackets.TryGetValue(bracket, out string? pair)) throw new ArgumentException($"Unable to get pair of {bracket} at {walker.RangePosition.Begin}");
+		if (!Brackets.TryGetValue(bracket, out string? pair)) throw new Error($"Unable to get pair of {bracket}", walker.RangePosition.Begin);
 		uint counter = 1;
 		uint begin = walker.Index + 1;
 		for (walker.Index++; walker.Index < walker.RangeIndex.End; walker.Index++)
 		{
 			if (!walker.InRange) continue;
 			Token token = walker.Token;
-			if (token.Match(Types.Bracket, bracket)) counter++;
-			else if (token.Match(Types.Bracket, pair)) counter--;
+			if (token.Match(Token.Types.Bracket, bracket)) counter++;
+			else if (token.Match(Token.Types.Bracket, pair)) counter--;
 			if (counter != 0) continue;
 			uint end = walker.Index;
 			walker.Index = begin;
 			return walker.GetSubwalker(begin, end);
 		}
-		throw new ArgumentException($"Expected '{pair}' at {walker.RangePosition.End}");
+		throw new Error($"Expected '{pair}'", walker.RangePosition.End);
 	}
 	private Node VerticesParse(in Walker walker)
 	{
-		if (!walker.InRange) throw new NullReferenceException($"Expected expression at {walker.RangePosition.Begin}");
+		if (!walker.InRange) throw new Error($"Expected expression", walker.RangePosition.Begin);
 		Token token = walker.Token;
 		switch (token.Type)
 		{
-		case Types.Number:
+		case Token.Types.Number:
 		{
 			ValueNode value = new(Convert.ToDouble(token.Value, CultureInfo.GetCultureInfo("en-US")), token.RangePosition);
 			walker.Index++;
 			return value;
 		}
-		case Types.String:
+		case Token.Types.String:
 		{
-			PathNode path = new(JsonConvert.DeserializeObject<string>(token.Value) ?? throw new Exception($"Unable to parse path at {token.RangePosition.Begin}"), token.RangePosition);
+			ValueNode path = new(JsonConvert.DeserializeObject<string>(token.Value) ?? throw new Error($"Unable to parse string", token.RangePosition.Begin), token.RangePosition);
 			walker.Index++;
 			return path;
 		}
-		case Types.Identifier:
+		case Token.Types.Identifier:
 		{
 			IdentifierNode identifier = new(token.Value, token.RangePosition);
 			walker.Index++;
 			if (!walker.InRange) return identifier;
 			Token subtoken = walker.Token;
-			if (!subtoken.Match(Types.Bracket, "(")) return identifier;
+			if (!subtoken.Match(Token.Types.Bracket, "(")) return identifier;
 			Node[] arguments = this.ArgumentsParse(GetSubwalker(walker, subtoken.Value));
 			walker.Index++;
 			return new InvokationNode(identifier, arguments, new(identifier.RangePosition.Begin, arguments.LastOrDefault(identifier).RangePosition.End));
 		}
-		case Types.Keyword:
+		case Token.Types.Keyword:
 		{
 			switch (token.Value)
 			{
@@ -221,10 +214,10 @@ internal partial class Interpreter
 				Node target = this.VerticesParse(walker);
 				return new UnaryOperatorNode(token.Value, target, new(token.RangePosition.Begin, target.RangePosition.End));
 			}
-			default: throw new ArgumentException($"Unidentified keyword '{token.Value}' at {token.RangePosition.Begin}");
+			default: throw new Error($"Unidentified keyword '{token.Value}'", token.RangePosition.Begin);
 			}
 		}
-		case Types.Operator:
+		case Token.Types.Operator:
 		{
 			if (token.Match("+", "-"))
 			{
@@ -232,25 +225,25 @@ internal partial class Interpreter
 				Node target = this.VerticesParse(walker);
 				return new UnaryOperatorNode(token.Value, target, new(token.RangePosition.Begin, target.RangePosition.End));
 			}
-			else throw new ArgumentException($"Unidentified operator '{token.Value}' at {token.RangePosition.Begin}");
+			else throw new Error($"Unidentified operator '{token.Value}'", token.RangePosition.Begin);
 		}
-		case Types.Bracket:
+		case Token.Types.Bracket:
 		{
 			Node node = this.Degree1OperatorsParse(GetSubwalker(walker, token.Value));
 			walker.Index++;
 			return node;
 		}
-		default: throw new ArgumentException($"Unidentified token '{token.Value}' at {token.RangePosition.Begin}");
+		default: throw new Error($"Unidentified token '{token.Value}'", token.RangePosition.Begin);
 		}
 	}
-	public IEnumerable<Node> Parse(in Token[] tokens)
+	private List<Node> Parse(in Token[] tokens)
 	{
 		List<Node> trees = [];
 		Walker walker = new(tokens, new(0, Convert.ToUInt32(tokens.Length)));
 		while (walker.Index < tokens.Length)
 		{
 			Node tree = this.Degree1OperatorsParse(walker);
-			if (!walker.InRange || !walker.Token.Match(Types.Separator, ";")) throw new ArgumentException($"Expected ';' at {walker.RangePosition.End}");
+			if (!walker.InRange || !walker.Token.Match(Token.Types.Separator, ";")) throw new Error($"Expected ';'", walker.RangePosition.End);
 			trees.Add(tree);
 			walker.Index++;
 		}

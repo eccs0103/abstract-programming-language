@@ -5,7 +5,7 @@ namespace APL;
 
 internal partial class Interpreter
 {
-	public class Token(in Token.Types type, in string value, in Range<Position> range)
+	private class Token(in Token.Types type, in string value, in Range<Position> range)
 	{
 		public enum Types
 		{
@@ -61,7 +61,7 @@ internal partial class Interpreter
 	[GeneratedRegex(@"^[;,]", RegexOptions.Compiled)]
 	private static partial Regex SeparatorPattern();
 
-	public static Token[] Tokenize(in string code)
+	private Token[] Tokenize(in string code)
 	{
 		Position begin = new(0, 0);
 		List<Token> tokens = [];
@@ -88,7 +88,7 @@ internal partial class Interpreter
 				hasChanges = true;
 				break;
 			}
-			if (!hasChanges) throw new FormatException($"Unidentified term '{text[0]}'");
+			if (!hasChanges) throw new Error($"Unidentified term '{text[0]}'", begin);
 		}
 		return [.. tokens];
 	}

@@ -1,8 +1,8 @@
 ﻿namespace APL;
 
-internal partial class Interpreter
+internal partial class Interpreter(in Interpreter.Initializer initializer)
 {
-	public class Position(in uint column, in uint line)
+	private class Position(in uint column, in uint line)
 	{
 		public readonly uint Column = column;
 		public readonly uint Line = line;
@@ -40,7 +40,7 @@ internal partial class Interpreter
 			return $"line {this.Line + 1} column {this.Column + 1}";
 		}
 	}
-	public class Range<T>(in T begin, in T end)
+	private class Range<T>(in T begin, in T end)
 	{
 		public readonly T Begin = begin;
 		public readonly T End = end;
@@ -52,6 +52,43 @@ internal partial class Interpreter
 	private class Wrapper<T>(T value)
 	{
 		public T Value = value;
+	}
+	private class Error(string message, Position position): Exception($"{message} at {position}")
+	{
+		public readonly Position Position = position;
+	}
+
+	public enum RunModes: byte
+	{
+		Debug,
+		Run,
+	}
+	public readonly struct Initializer(in RunModes mode)
+	{
+		public readonly RunModes Mode = mode;
+	}
+	private RunModes Mode = initializer.Mode;
+	public void Run(in string input)
+	{
+		ConsoleColor foreground = Console.ForegroundColor;
+		try
+		{
+			Console.ForegroundColor = ConsoleColor.Cyan;
+			Token[] tokens = this.Tokenize(input);
+			if (this.Mode == RunModes.Debug && tokens.Length > 0) Console.WriteLine(string.Join<Token>('\n', tokens));
+
+			Console.ForegroundColor = ConsoleColor.Blue;
+			List<Node> trees = this.Parse(tokens);
+			if (this.Mode == RunModes.Debug && tokens.Length > 0) Console.WriteLine(string.Join('\n', trees));
+
+			Console.ForegroundColor = ConsoleColor.Yellow;
+			this.Evaluate(trees);
+		}
+		catch (Error error)
+		{
+			Console.WriteLine(error.Message);
+		}
+		Console.ForegroundColor = foreground;
 	}
 }
 
@@ -67,7 +104,7 @@ static class Extensions
 			Types.Operator => "Operator",
 			Types.Bracket => "Bracket",
 			Types.Separator => "Separator",
-			_ => throw new ArgumentException($"Unidentified token '{type}' type")
+			_ => throw new Error($"Unidentified token '{type}' type")
 		};
 	}*/
 }
